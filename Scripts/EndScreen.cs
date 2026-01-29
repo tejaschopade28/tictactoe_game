@@ -36,23 +36,30 @@ public class EndScreen : MonoBehaviour
     public void UpdateRematchUI(RematchState state)
     {
         rematchStatusRoot.SetActive(true);
-        resultText.text="";
+        rematchStatusText.text = ""; // use this for rematch messages
+
         switch (state)
         {
-        case RematchState.IAccepted:
-            resultText.text="Waiting for opponent...";
-            rematchButton.interactable = false;
-            break;
-        case RematchState.OpponentAccepted:
-            resultText.text="Opponent wants rematch...";
-            rematchButton.interactable = true;
-            break;
-        case RematchState.BothAccepted:
-            resultText.text="Match starting...";
-            rematchButton.interactable = false;
-            break;
+            case RematchState.IAccepted:
+                rematchStatusText.text = "Waiting for opponent...";
+                rematchButton.interactable = false;
+                break;
+            case RematchState.OpponentAccepted:
+                rematchStatusText.text = "Opponent wants rematch...";
+                rematchButton.interactable = true;
+                break;
+            case RematchState.BothAccepted:
+                rematchStatusText.text = "Match starting...";
+                rematchButton.interactable = false;
+                break;
+            case RematchState.None:
+            default:
+                rematchStatusRoot.SetActive(false);
+                rematchButton.interactable = true;
+                break;
         }
     }
+
     public void ShowOpponentLeft()
     {
         Debug.Log("Showing opponent left");

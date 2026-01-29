@@ -1,24 +1,31 @@
-using System.Net.NetworkInformation;
 using TMPro;
-using Unity.VisualScripting;
 using UnityEngine;
 using static GameEnums;
+
 public class OnlineGameManager : MonoBehaviour
 {
     public static OnlineGameManager Instance;
-    [SerializeField] GameManager gameManager;
-    [SerializeField] Cell[] cells;
-    [SerializeField] Sprite xSprite;
-    [SerializeField] Sprite oSprite;
-    [SerializeField] TextMeshProUGUI currentPlayerText;
-    [SerializeField] EndScreen endScreen;
-    [SerializeField] UIManager uIManager;
-    public RematchState rematchState = RematchState.None;
 
-    public int myPlayerIndex=-1;
+    [Header("References")]
+    [SerializeField] private GameManager gameManager;
+    [SerializeField] public Cell[] cells;
+    //[SerializeField] private UIGameManager uIGameManager;
+    [SerializeField] private EndScreen endScreen;
+
+    [Header("Sprites")]
+    [SerializeField] private Sprite xSprite;
+    [SerializeField] private Sprite oSprite;
+    [SerializeField] private TextMeshProUGUI currentPlayerText;
+
+    [Header("State")]
+    public RematchState rematchState = RematchState.None;
+    public int myPlayerIndex = -1;
     public int currentPlayerIndex = -1;
-    bool gameOver= false;
-    bool inputLocked = false;
+
+    private bool inputLocked = false;
+    private bool gameOver = false;
+    public bool isLeaving = false;
+
     private void Awake()
     {
         if (Instance != null)
@@ -28,148 +35,123 @@ public class OnlineGameManager : MonoBehaviour
         }
         Instance = this;
     }
+    private void Start()
+    {
+        GameManager.Instance.RegisterOnlineManager(this);
+    }
+    public void SetCells(Cell[] cellsArray)
+    {
+        cells = cellsArray;
+    }
+
     public void StartOnlineGame(int myIndex)
     {
-        Debug.Log("On server Start");
-        myPlayerIndex = myIndex; 
-        gameOver= false;
+        myPlayerIndex = myIndex;
+        currentPlayerIndex = 0;
+        gameOver = false;
         isLeaving = false;
+        inputLocked = myPlayerIndex != 0;
 
         ClearBoard();
-        gameManager.SetGameMode(GameEnums.GameMode.VsOnlinePlayer);
-        gameManager.SetGameState(GameEnums.GameState.Playing);
-        endScreen.gameObject.SetActive(false);
+        endScreen.ResetUI();
+        endScreen.Hide();
 
-        currentPlayerIndex = 0;
-        //gameboard.GameReset();
-        currentPlayerText.text = myIndex==0? "Your turn": "Opponent turn";
+        gameManager.SetGameState(GameState.Playing);
+
+        UpdateCurrentPlayerText();
     }
 
-    public void ServerBoardApply( int[] board, int turn)
+    public void ServerBoardApply(int[] board, int turn)
     {
-        Debug.Log("turn" + turn);
-       
-        Debug.Log("Server board applying ### ");
-
         inputLocked = turn != myPlayerIndex;
-        currentPlayerIndex= turn;
-        for(int i = 0; i < board.Length; i++)
+        currentPlayerIndex = turn;
+
+        for (int i = 0; i < board.Length; i++)
         {
-            if (board[i] == 1)
-            {
-                cells[i].SetSprite(xSprite,false);
-            }
-            else if (board[i] == 2)
-            {
-                cells[i].SetSprite(oSprite, false);
-            }
-            else
-            {
-                cells[i].ClearSprite();
-            }
+            if (board[i] == 1) cells[i].SetSprite(xSprite);
+            else if (board[i] == 2) cells[i].SetSprite(oSprite);
+            else cells[i].ClearSprite();
         }
-        if(turn !=-1)
-            currentPlayerText.text= (turn == myPlayerIndex)?
-                                 "Your turn": "Opponent turn";
+
+        if (turn != -1)
+            UpdateCurrentPlayerText();
     }
+
+
     public void OnCellClickedOnline(int index)
     {
-        Debug.Log($"CLICK index={index} my={myPlayerIndex} turn={currentPlayerIndex}");
-        if (gameOver) return;
-        if (inputLocked) return;
-        if (currentPlayerIndex != myPlayerIndex) return;
+        if (gameOver || inputLocked || currentPlayerIndex != myPlayerIndex) return;
+        if (cells[index].IsOccupied) return;
+
         inputLocked = true;
-        if (cells[index].IsOccupied) return; 
         WSClients.Instance.SendMove(index);
     }
+
+
     public void OnGameOver(int winnerIndex)
     {
-        gameManager.winnerIndex = winnerIndex;
-
-        if (winnerIndex == -1)
-            gameManager.SetGameState(GameEnums.GameState.Draw);
-        else
-            gameManager.SetGameState(GameEnums.GameState.GameOver);
+        gameOver = true;
+        gameManager.OnOnlineGameOver(winnerIndex);
     }
-    public bool isLeaving = false;
 
     public void OnOpponentLeft()
     {
-        if (isLeaving)
-        {
-            return;
-        }
-        Debug.Log("Opponent left");
+        if (isLeaving) return;
+
         gameOver = true;
         inputLocked = true;
-        uIManager.ShowOpponentLeftUI();
+
+        gameManager.OnOpponentLeft();
     }
+
 
     public void RematchRequest()
     {
-        if (rematchState == RematchState.IAccepted)
-        return;
-        Debug.Log("REMATCH BUTTON CLICKED");
+        if (rematchState == RematchState.IAccepted) return;
+
         rematchState = RematchState.IAccepted;
         endScreen.UpdateRematchUI(rematchState);
         WSClients.Instance.SendRematch();
     }
 
-public void OnRematchUpdate(bool[] accepted)
-{
-    if (accepted == null || accepted.Length < 2)
+    public void OnRematchUpdate(bool[] accepted)
     {
-        Debug.LogWarning("Invalid rematch update");
-        return;
-    }
-    Debug.Log("updateed rematch");
-    bool iAccepted = accepted[myPlayerIndex];
-    bool opponentAccepted = accepted[1 - myPlayerIndex];
+        if (accepted == null || accepted.Length < 2) return;
 
-    if (iAccepted && opponentAccepted)
-    {
-        rematchState = RematchState.BothAccepted;
-    }
-    else if (opponentAccepted)
-    {
-        rematchState = RematchState.OpponentAccepted;
-    }
-    else if (iAccepted)
-    {
-        rematchState = RematchState.IAccepted;
-    }
-    else
-    {
-        rematchState = RematchState.None;
-    }
+        bool iAccepted = accepted[myPlayerIndex];
+        bool opponentAccepted = accepted[1 - myPlayerIndex];
 
-    endScreen.UpdateRematchUI(rematchState);
-}
+        if (iAccepted && opponentAccepted) rematchState = RematchState.BothAccepted;
+        else if (opponentAccepted) rematchState = RematchState.OpponentAccepted;
+        else if (iAccepted) rematchState = RematchState.IAccepted;
+        else rematchState = RematchState.None;
 
+        endScreen.UpdateRematchUI(rematchState);
+    }
 
     public void StartRematch()
-    {  
-        Debug.Log("Rematch started");
+    {
         rematchState = RematchState.None;
         gameOver = false;
         isLeaving = false;
-
         inputLocked = myPlayerIndex != 0;
+        currentPlayerIndex = 0;
 
         ClearBoard();
-        currentPlayerIndex = 0;
         endScreen.ResetUI();
         endScreen.Hide();
-        gameManager.SetGameState(GameEnums.GameState.Playing);
 
-        currentPlayerText.text =
-            myPlayerIndex == 0 ? "Your turn" : "Opponent turn";
+        gameManager.SetGameState(GameState.Playing);
+        UpdateCurrentPlayerText();
     }
-
-
-    void ClearBoard()
+    private void ClearBoard()
     {
         foreach (var c in cells)
             c.ClearSprite();
+    }
+
+    private void UpdateCurrentPlayerText()
+    {
+        currentPlayerText.text = currentPlayerIndex == myPlayerIndex ? "Your turn" : "Opponent turn";
     }
 }

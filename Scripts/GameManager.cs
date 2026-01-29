@@ -1,167 +1,217 @@
 using System;
-using System.Collections;
-using System.Net.WebSockets;
 using TMPro;
-using Unity.Multiplayer.PlayMode;
 using UnityEngine;
-using UnityEngine.InputSystem.LowLevel;
+using UnityEngine.SceneManagement;
 using static GameEnums;
 
 public class GameManager : MonoBehaviour
 {
-    //public static GameManager Instance;
-    [SerializeField] UIManager uIManager;
-    [SerializeField] Gameboard gameboard;
-    [SerializeField] EndScreen endScreen;
-    [SerializeField] TextMeshProUGUI currentPlayerText;
+    public static GameManager Instance;
+    public static event Action<GameState> OnGameStateChanged;
 
-    [SerializeField]  Cell[] cell;
-    [SerializeField] Sprite oSprite;
-    [SerializeField] Sprite xSprite;
+    [Header("Managers")]
+    private OfflineManager offlineManager;
+    private OnlineGameManager onlineGameManager;
 
-    TurnState  turnState = TurnState.playerTurn;
-    [SerializeField] public GameMode currentGameMode;
+    [Header("UI")]
+    [SerializeField] private TextMeshProUGUI currentPlayerText; // Assign in GameScene if you have UI
 
-    public GameEnums.PlayerType playerSymbol;   // chosen by player
-    public GameEnums.PlayerType opponentSymbol; // computer or 2nd player
-
-
-
+    [Header("Game State")]
+    public GameMode currentGameMode;
+    public GameState currentGameState;
     public int winnerIndex = -1;
- 
- /*
+
+    [Header("Player Choice")]
+    public PlayerType playerSymbol = PlayerType.X;
+    public PlayerType opponentSymbol = PlayerType.O;
+    private Cell[] cachedCells;
+
+
+    // Internal flags for safe startup
+    private bool cellsReady = false;
+    private bool offlineReady = false;
+
     private void Awake()
     {
-        if (Instance != null && Instance != this)
+        if (Instance != null)
         {
             Destroy(gameObject);
             return;
         }
+
         Instance = this;
-    } */
+        DontDestroyOnLoad(gameObject);
 
-
-    private void Start()
-    {
-        SetGameState(GameEnums.GameState.ModeSelection);
-        currentPlayerText.text = gameboard.currentPlayer== GameEnums.PlayerType.O? "O is Playing" : "X is Playing";
-    }
-    public void StartGame(GameMode mode)
-    {
-        SetGameMode(mode);
-        //turnState = TurnState.playerTurn;
-        turnReset();    
-        gameboard.GameReset();
-        SetGameState(GameEnums.GameState.Playing);
-        currentPlayerText.text = gameboard.currentPlayer== GameEnums.PlayerType.O? "O is Playing" : "X is Playing";
-        gameboard.gameObject.SetActive(true);
-    }
-    
-    public void GameRestart()
-    {
-        gameboard.GameReset();
-
-        foreach (Cell c in cell)
-        {
-            c.ClearSprite();
-        }
-        turnState = TurnState.playerTurn;
-
-        gameboard.currentPlayer = playerSymbol;
-        currentPlayerText.text =
-            gameboard.currentPlayer == GameEnums.PlayerType.O
-            ? "O is Playing"
-            : "X is Playing";
-        SetGameState(GameEnums.GameState.Playing);
+        currentGameState = GameState.ModeSelection;
     }
 
-    public void turnReset()
+    private void OnEnable()
     {
-        turnState = TurnState.playerTurn;
+        SceneManager.sceneLoaded += OnSceneLoaded;
     }
 
-    public void SetPlayerType(GameEnums.PlayerType playerType)
+    private void OnDisable()
     {
-        playerSymbol = playerType;
-        opponentSymbol= (playerType== GameEnums.PlayerType.X)?GameEnums.PlayerType.O:GameEnums.PlayerType.X;
-        gameboard.currentPlayer= playerSymbol;
-        Debug.Log("Player chose: " + playerSymbol + ", Opponent: " + opponentSymbol);
+        SceneManager.sceneLoaded -= OnSceneLoaded;
     }
-    public void SetGameState(GameEnums.GameState state)
+
+    // -------------------- Registration --------------------
+    public void RegisterOfflineManager(OfflineManager manager)
     {
-        gameboard.SetState(state);
-        if (state == GameEnums.GameState.Playing)
-        {
-            gameboard.gameObject.SetActive(true); 
-            endScreen.gameObject.SetActive(false);
-        }
-        uIManager.UpdateUI(state);
-        
+        offlineManager = manager;
+        offlineReady = true;
+        Debug.Log("regstered offline");
     }
+
+    public void RegisterOnlineManager(OnlineGameManager manager)
+    {
+        onlineGameManager = manager;
+    }
+
+    // -------------------- Game Mode --------------------
     public void SetGameMode(GameMode mode)
     {
-        Debug.Log(mode + " This is mode");
-        currentGameMode= mode;
+        currentGameMode = mode;
+
+        switch (mode)
+        {
+            case GameMode.VsComputer:
+            case GameMode.VsOfflinePlayer:
+                SetGameState(GameState.Playing); // intent only
+                TryStartOfflineGame();
+                break;
+
+            case GameMode.VsOnlinePlayer:
+                SetGameState(GameState.WaitingRoom);
+                break;
+        }
     }
 
+    public void SetPlayerType(PlayerType type)
+    {
+        playerSymbol = type;
+        opponentSymbol = (type == PlayerType.X) ? PlayerType.O : PlayerType.X;
+
+        Debug.Log($"Player symbol: {playerSymbol} | Opponent: {opponentSymbol}");
+    }
+
+    // -------------------- Cells --------------------
+    public void SetCells(Cell[] cellsArray)
+    {
+        Debug.Log("Setting cells in managers");
+        cellsReady = true;
+        cachedCells = cellsArray;
+        offlineManager?.SetCells(cellsArray);
+        onlineGameManager?.SetCells(cellsArray);
+        
+        // Only start offline game if the mode requires it
+       /* if (currentGameMode == GameMode.VsComputer || currentGameMode == GameMode.VsOfflinePlayer)
+        {
+            offlineManager?.StartOfflineGame(playerSymbol);
+        }*/
+        TryStartOfflineGame();
+    }
+    private void TryStartOfflineGame()
+    {
+        if (!offlineReady || !cellsReady)
+        {
+            Debug.Log("Waiting... offlineReady=" + offlineReady + " cellsReady=" + cellsReady);
+            return;
+        }
+
+        if (currentGameMode != GameMode.VsComputer &&
+            currentGameMode != GameMode.VsOfflinePlayer)
+            return;
+
+        Debug.Log(" Starting offline game!");
+        offlineManager.StartOfflineGame(playerSymbol);
+        UpdateCurrentPlayerText();
+    }
+
+
+    // -------------------- Scene Loaded --------------------
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name != "GameScene") return;
+
+        Debug.Log("GameScene loaded");
+        // Offline game will auto-start via TryStartOfflineGame()
+        // Online game will wait for server callback OnOnlineGameStarted()
+    }
+
+    // -------------------- Game State --------------------
+    public void SetGameState(GameState state)
+    {
+        currentGameState = state;
+        Debug.Log("GameState changed to: " + state);
+        OnGameStateChanged?.Invoke(state);
+    }
+
+    // -------------------- Gameplay --------------------
     public void OnCellClicked(int index)
     {
-        if (currentGameMode == GameMode.VsComputer && turnState == TurnState.computerTurn)
-        {
-            return;
-        }
-        if(turnState != TurnState.playerTurn)
-        {
-            return;
-        }
-        bool sucess=gameboard.PlayerMove(index);
-        if (!sucess)
-            return;
-        currentPlayerText.text = gameboard.currentPlayer== GameEnums.PlayerType.O? "O is Playing" : "X is Playing";
-       // gameboard.PlayerMove(index);
-        Debug.Log("player move hua hai");
-        cell[index].SetSprite(gameboard.currentPlayer== GameEnums.PlayerType.O? xSprite:oSprite);
-        ShowResult();
-        currentPlayerText.text = gameboard.currentPlayer== GameEnums.PlayerType.O? "O is Playing" : "X is Playing";
-        if(currentGameMode== GameMode.VsComputer)
-        {
-            turnState  = TurnState.computerTurn;
-            StartCoroutine(ComputerTurnRoutine()); 
-        }
-        
-    }
+        Debug.Log("id of the cell is "+ index);
 
-    public void ShowResult()
-    {
-        switch (gameboard.currentState)
-        {
-            case GameEnums.GameState.GameOver:
-                winnerIndex = gameboard.GetWinnerIndex(); // you already have logic
-                SetGameState(GameEnums.GameState.GameOver);
-                break;
+        if (currentGameState != GameState.Playing) return;
 
-            case GameEnums.GameState.Draw:
-                winnerIndex = -1;
-                SetGameState(GameEnums.GameState.Draw);
-                break;
+        if (currentGameMode == GameMode.VsOnlinePlayer)
+        {
+            onlineGameManager.OnCellClickedOnline(index);
+        }
+        else
+        {
+            Debug.Log("Clinking offline");
+            offlineManager.OnCellClickedOffline(index);
+            UpdateCurrentPlayerText();
         }
     }
 
-    public void SetWinner(int index)
+    public void UpdateCurrentPlayerText()
     {
-        winnerIndex = index;
+        if (currentGameMode == GameMode.VsOnlinePlayer) return;
+
+        if (currentPlayerText != null)
+            currentPlayerText.text = offlineManager.boardState.currentPlayer.ToString() + " is Playing";
+    }
+    public void OnOfflineGameOver(PlayerType winner)
+    {
+        winnerIndex = (winner == PlayerType.X) ? 0 :
+                      (winner == PlayerType.O) ? 1 : -1;
+
+        SetGameState(winner == PlayerType.empty ? GameState.Draw : GameState.GameOver);
     }
 
-    IEnumerator ComputerTurnRoutine()
+    public void OnOnlineGameOver(int serverWinnerIndex)
     {
-        yield return new WaitForSeconds(1.0f);
+        winnerIndex = serverWinnerIndex;
+        SetGameState(serverWinnerIndex == -1 ? GameState.Draw : GameState.GameOver);
+    }
 
-        int computerIndex = gameboard.ComputerMove();
-        if(computerIndex==-1) yield break;
-        cell[computerIndex].SetSprite(gameboard.currentPlayer== GameEnums.PlayerType.O? xSprite:oSprite);
-        ShowResult();
-        //turn state
-        turnState = TurnState.playerTurn;
-        currentPlayerText.text =gameboard.currentPlayer== GameEnums.PlayerType.O? "O is Playing" : "X is Playing";
+    public void OnOnlineGameStarted()
+    {
+        SetGameState(GameState.Playing);
+    }
+
+    public void OnOpponentLeft()
+    {
+        SetGameState(GameState.GameOver);
+        // Show UI message
+    }
+
+    public void GameRestart()
+    {
+        winnerIndex = -1;
+
+        if (currentGameMode == GameMode.VsComputer || currentGameMode == GameMode.VsOfflinePlayer)
+        {
+            offlineManager.ResetGame();
+            TryStartOfflineGame();
+        }
+        else if (currentGameMode == GameMode.VsOnlinePlayer)
+        {
+            onlineGameManager.StartRematch();
+        }
+
+        Debug.Log("Game restarted");
     }
 }

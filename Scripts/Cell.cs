@@ -3,47 +3,30 @@ using UnityEngine.UI;
 
 public class Cell : MonoBehaviour
 {
-    [SerializeField] public int id;
-    //public int val;
-    [SerializeField] public Button button;
+    public int id;
 
-    [SerializeField] Image cellImage;
-    [SerializeField] Sprite defaultIMage;
-    [SerializeField] GameManager gameManager;
-   // public bool isIntaractive= true;
-   public bool IsOccupied => cellImage.sprite != defaultIMage;
+    [SerializeField] private Image cellImage;
+    [SerializeField] private Sprite defaultImage;
 
+    public bool IsOccupied => cellImage.sprite != defaultImage;
 
-    void Start()
+    // Called from Button OnClick (Inspector)
+    public void OnCellClicked()
     {
-       // gameManager = GameManager.Instance;
-        button.onClick.AddListener(OnclickButton);
+        Debug.Log("CELL BUTTON CLICKED: " + id);
+        GameManager.Instance.OnCellClicked(id);
     }
-
-    public void OnclickButton()
+    public void OnCellClickeddummy()
     {
-        if (gameManager.currentGameMode == GameEnums.GameMode.VsOnlinePlayer)
-        {
-            
-            OnlineGameManager.Instance.OnCellClickedOnline(id);
-        }
-        else{
-            gameManager.OnCellClicked(id);
-        }
+        Debug.Log("CELL BUTTON CLICKED: " + id);
     }
-
-    public void SetSprite(Sprite sprite, bool disableButton = true)
+    public void SetSprite(Sprite sprite)
     {
-        Debug.Log("SetSprite called on cell " + id);
-        Debug.Log("Sprite received: " + sprite);
         cellImage.sprite = sprite;
-        cellImage.enabled = true;
-        button.interactable = !disableButton;
     }
+
     public void ClearSprite()
     {
-        cellImage.sprite = defaultIMage;
-       // cellImage.enabled= false;
-        button.interactable=true;
+        cellImage.sprite = defaultImage;
     }
 }

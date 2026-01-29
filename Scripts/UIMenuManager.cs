@@ -3,7 +3,7 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 using static GameEnums;
 
-public class UIManager : MonoBehaviour
+public class UIMenuManager : MonoBehaviour
 {
     [Header("Managers")]
     [SerializeField] private PlayerChoice playerChoice;
@@ -13,22 +13,9 @@ public class UIManager : MonoBehaviour
     public GameObject SelectOffline;  // MenuScene
     public GameObject WaitingRoom;    // MenuScene
 
-    public GameObject MainGame;        // GameScene
-    public GameObject AfterGame;       // GameScene
-
-    [Header("UI")]
-    [SerializeField] private EndScreen end;
-    [SerializeField] private Button rematchButton;
-
     public bool isChoiceSelected = false;
-    private void Awake()
-    {
-        Debug.Log("UIManager Awake fired!");
-    }
-
     private void OnEnable()
     {
-         Debug.Log("UIManager OnEnable fired!");
         GameManager.OnGameStateChanged += UpdateUI;
 
         //  Sync UI with current state immediately
@@ -46,7 +33,9 @@ public class UIManager : MonoBehaviour
 
     private void Start()
     {
-        DisableAllScreens();
+        SetActiveSafe(SelectMode, true);
+        SetActiveSafe(SelectOffline, false);
+        SetActiveSafe(WaitingRoom, false);
     }
 
     void SetActiveSafe(GameObject go, bool value)
@@ -62,11 +51,7 @@ public class UIManager : MonoBehaviour
         SetActiveSafe(SelectMode, false);
         SetActiveSafe(SelectOffline, false);
         SetActiveSafe(WaitingRoom, false);
-        //SetActiveSafe(MainGame, false);
-     //   SetActiveSafe(AfterGame, false);
     }
-
-    // ================= UI UPDATE =================
 
     public void UpdateUI(GameState state)
     {
@@ -87,15 +72,6 @@ public class UIManager : MonoBehaviour
 
             case GameState.WaitingRoom:
                 SetActiveSafe(WaitingRoom, true);
-                break;
-
-            case GameState.Playing:
-               // SetActiveSafe(MainGame, true);
-                break;
-
-            case GameState.GameOver:
-            case GameState.Draw:
-                ShowEndGameUI(state);
                 break;
         }
     }
@@ -121,42 +97,6 @@ public class UIManager : MonoBehaviour
         return true;
     }
 
-    // ================= END GAME =================
-
-    void ShowEndGameUI(GameState state)
-    {
-       // SetActiveSafe(AfterGame, true);
-
-        if (end == null) return;
-
-        end.ResetUI();
-
-        if (state == GameState.Draw)
-        {
-            end.ShowDraw();
-            return;
-        }
-
-        if (GameManager.Instance.currentGameMode == GameMode.VsOnlinePlayer)
-        {
-            bool isMeWinner =
-                GameManager.Instance.winnerIndex == OnlineGameManager.Instance.myPlayerIndex;
-            end.ShowWinner(isMeWinner ? "YOU" : "Opponent");
-        }
-        else
-        {
-            string winner = GameManager.Instance.winnerIndex == 0 ? "X" : "O";
-            end.ShowWinner(winner);
-        }
-    }
-
-    public void ShowOpponentLeftUI()
-    {
-        if (end != null)
-            end.ShowOpponentLeft();
-    }
-
-    // ================= MENU BUTTONS =================
 
     public void OfflineClicked()
     {
@@ -165,30 +105,34 @@ public class UIManager : MonoBehaviour
 
     public void OnVsComputerClicked()
     {
+        
         if (!ValidateSymbolSelection()) return;
 
         GameManager.Instance.SetGameMode(GameMode.VsComputer);
         SceneManager.LoadScene("GameScene");
+        
     }
 
     public void OnVsOfflinePlayerClicked()
     {
+        
         if (!ValidateSymbolSelection()) return;
-
         GameManager.Instance.SetGameMode(GameMode.VsOfflinePlayer);
         SceneManager.LoadScene("GameScene");
+        //GameManager.Instance.SetGameState(GameState.Playing);
+
+        
     }
 
     public void OnVsOnlinePlayerClicked()
     {
+        
         if (!ValidateSymbolSelection()) return;
-
         GameManager.Instance.SetGameMode(GameMode.VsOnlinePlayer);
-        SceneManager.LoadScene("GameScene");
-        WSClients.Instance.Connect();
-    }
 
-    // ================= BACK / HOME =================
+        WSClients.Instance.Connect();
+        SceneManager.LoadScene("GameScene");
+    }
 
     public void OnBackClicked()
     {
@@ -199,51 +143,11 @@ public class UIManager : MonoBehaviour
 
         GameManager.Instance.SetGameState(GameState.ModeSelection);
     }
-
-    public void OnBackDuringGameClicked()
-    {
-        if (GameManager.Instance.currentGameMode == GameMode.VsOnlinePlayer)
-        {
-            OnlineGameManager.Instance.isLeaving = true;
-            WSClients.Instance.LeaveRoomAndDisconnect();
-        }
-
-        GameManager.Instance.GameRestart();
-        GameManager.Instance.SetGameState(GameState.ModeSelection);
-        SceneManager.LoadScene("MenuScene");
-    }
-
     public void OnBackClickedDuringWaitingScreen()
     {
         WSClients.Instance.LeaveRoomAndDisconnect();
         GameManager.Instance.SetGameState(GameState.ModeSelection);
     }
-
-    public void OnClickedRematch()
-    {
-        if (GameManager.Instance.currentGameMode == GameMode.VsOnlinePlayer)
-        {
-            OnlineGameManager.Instance.RematchRequest();
-        }
-        else
-        {
-            GameManager.Instance.GameRestart();
-            GameManager.Instance.SetGameState(GameState.Playing);
-        }
-    }
-
-    public void OnClickedHome()
-    {
-        if (GameManager.Instance.currentGameMode == GameMode.VsOnlinePlayer)
-        {
-            OnlineGameManager.Instance.isLeaving = true;
-            WSClients.Instance.LeaveRoomAndDisconnect();
-        }
-
-        GameManager.Instance.SetGameState(GameState.ModeSelection);
-        SceneManager.LoadScene("MenuScene");
-    }
-
     public void OnClickedExit()
     {
         Application.Quit();
